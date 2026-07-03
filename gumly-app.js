@@ -141,6 +141,13 @@ const GumlyApi = {
 /* Auth-aware header: toggles Log in/Sign up vs. account chip on every page
    that includes an element with [data-nav-actions]. */
 
+function gumlyDisplayName(user) {
+  if (!user) return "";
+  const meta = user.user_metadata || {};
+  // Google OAuth typically provides full_name and/or name; our own signup form stores full_name.
+  return meta.full_name || meta.name || user.email.split("@")[0];
+}
+
 function gumlyInitNav() {
   const navActions = document.querySelector("[data-nav-actions]");
   if (!navActions) return;
@@ -149,9 +156,9 @@ function gumlyInitNav() {
   const render = (session) => {
     navActions.setAttribute("data-authstate", session ? "in" : "out");
     const nameEl = navActions.querySelector("[data-user-email]");
-    if (nameEl && session) nameEl.textContent = session.user.email;
+    if (nameEl && session) nameEl.textContent = gumlyDisplayName(session.user);
     const avatarEl = navActions.querySelector("[data-user-avatar]");
-    if (avatarEl && session) avatarEl.textContent = session.user.email.charAt(0).toUpperCase();
+    if (avatarEl && session) avatarEl.textContent = gumlyDisplayName(session.user).charAt(0).toUpperCase();
   };
 
   GumlyAuth.getSession().then(render);

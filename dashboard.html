@@ -316,7 +316,7 @@
 
     document.getElementById("guardGate").style.display = "none";
     document.getElementById("dashShell").style.display = "block";
-    document.getElementById("welcomeMsg").textContent = `Welcome back, ${session.user.email.split("@")[0]} 👋`;
+    document.getElementById("welcomeMsg").textContent = `Welcome back, ${gumlyDisplayName(session.user)} 👋`;
 
     const res = await GumlyApi.listBookings();
     if (!res.ok) {
