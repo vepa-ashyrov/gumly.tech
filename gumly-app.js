@@ -174,4 +174,26 @@ function gumlyInitNav() {
   }
 }
 
+/* ---------------------------------------------------------------------- */
+/* Numeric-only input restriction — blocks letters from phone/card fields.
+   Usage: add data-numeric-input="phone" (allows digits, spaces, + - ( ))
+   or data-numeric-input="digits" (digits and spaces only, e.g. card numbers)
+   to any <input>. */
+
+function gumlyInitNumericInputs() {
+  document.querySelectorAll("[data-numeric-input]").forEach((input) => {
+    const mode = input.getAttribute("data-numeric-input");
+    const allowed = mode === "digits" ? /[^0-9\s]/g : /[^0-9+\-()\s]/g;
+
+    const sanitize = () => {
+      const cleaned = input.value.replace(allowed, "");
+      if (cleaned !== input.value) input.value = cleaned;
+    };
+
+    input.addEventListener("input", sanitize);
+    input.addEventListener("paste", () => setTimeout(sanitize, 0));
+  });
+}
+
 document.addEventListener("DOMContentLoaded", gumlyInitNav);
+document.addEventListener("DOMContentLoaded", gumlyInitNumericInputs);
