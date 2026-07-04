@@ -18,6 +18,11 @@ const GUMLY_CONFIG = {
   // Your Express API on Render
   API_BASE_URL: "https://api.gumly.tech",
 
+  // Settings > API > Google Cloud Console — a "Browser key" restricted to gumly.tech,
+  // with "Places API (New)" enabled. Powers the address autocomplete fields.
+  // Leave as-is to disable autocomplete gracefully (fields just work as plain text inputs).
+  GOOGLE_PLACES_API_KEY: "PASTE_YOUR_GOOGLE_PLACES_API_KEY_HERE",
+
   // Adjust these paths to match your actual Express routes if they differ.
   ENDPOINTS: {
     BOOKINGS: "/api/bookings",   // GET  -> list current user's bookings
@@ -195,5 +200,168 @@ function gumlyInitNumericInputs() {
   });
 }
 
+/* ---------------------------------------------------------------------- */
+/* Address autocomplete — wires up any input tagged data-address-autocomplete
+   with a custom-styled suggestion dropdown backed by Google Places.
+   Degrades gracefully to a plain text field if no API key is configured
+   or the Google Maps script fails to load. */
+
+let _googleMapsLoadPromise = null;
+
+function gumlyLoadGoogleMaps() {
+  if (_googleMapsLoadPromise) return _googleMapsLoadPromise;
+
+  const key = GUMLY_CONFIG.GOOGLE_PLACES_API_KEY;
+  if (!key || key === "AIzaSyBXvX1uhVeSy1yVyy7GbzhqdcEZV3VyQ78") {
+    return Promise.reject(new Error("Google Places API key not configured in gumly-app.js"));
+  }
+
+  _googleMapsLoadPromise = new Promise((resolve, reject) => {
+    if (window.google?.maps?.importLibrary) {
+      resolve(window.google);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&loading=async&libraries=places&v=weekly`;
+    script.async = true;
+    script.onerror = () => reject(new Error("Failed to load Google Maps script"));
+    script.onload = () => resolve(window.google);
+    document.head.appendChild(script);
+  });
+
+  return _googleMapsLoadPromise;
+}
+
+function gumlyInitAddressAutocomplete() {
+  const inputs = document.querySelectorAll("[data-address-autocomplete]");
+  if (!inputs.length) return;
+
+  gumlyLoadGoogleMaps()
+    .then((google) => google.maps.importLibrary("places"))
+    .then(({ AutocompleteSuggestion, AutocompleteSessionToken }) => {
+      inputs.forEach((input) => wireAddressField(input, AutocompleteSuggestion, AutocompleteSessionToken));
+    })
+    .catch((err) => {
+      console.warn("Address autocomplete disabled:", err.message);
+    });
+}
+
+function wireAddressField(input, AutocompleteSuggestion, AutocompleteSessionToken) {
+  let sessionToken = new AutocompleteSessionToken();
+  let debounceTimer = null;
+  let activeIndex = -1;
+  let currentSuggestions = [];
+
+  // Wrap the input so we can absolutely-position a dropdown beneath it,
+  // without disturbing whatever layout already contains it.
+  const wrapper = document.createElement("div");
+  wrapper.style.position = "relative";
+  input.parentNode.insertBefore(wrapper, input);
+  wrapper.appendChild(input);
+
+  const dropdown = document.createElement("div");
+  dropdown.className = "gumly-address-dropdown";
+  dropdown.style.display = "none";
+  wrapper.appendChild(dropdown);
+
+  function closeDropdown() {
+    dropdown.style.display = "none";
+    dropdown.innerHTML = "";
+    activeIndex = -1;
+    currentSuggestions = [];
+  }
+
+  function renderSuggestions(suggestions) {
+    currentSuggestions = suggestions;
+    activeIndex = -1;
+    if (!suggestions.length) {
+      closeDropdown();
+      return;
+    }
+    dropdown.innerHTML = suggestions
+      .map((s, i) => {
+        const pred = s.placePrediction;
+        const main = pred.mainText ? pred.mainText.toString() : pred.text.toString();
+        const secondary = pred.secondaryText ? pred.secondaryText.toString() : "";
+        return `<div class="gumly-address-option" data-index="${i}">
+          <span class="gumly-address-main">📍 ${main}</span>
+          ${secondary ? `<span class="gumly-address-secondary">${secondary}</span>` : ""}
+        </div>`;
+      })
+      .join("");
+    dropdown.style.display = "block";
+  }
+
+  async function selectSuggestion(index) {
+    const suggestion = currentSuggestions[index];
+    if (!suggestion) return;
+    const place = suggestion.placePrediction.toPlace();
+    await place.fetchFields({ fields: ["formattedAddress"] });
+    input.value = place.formattedAddress || suggestion.placePrediction.text.toString();
+    closeDropdown();
+    // Fresh session token after a completed selection (per Google's billing guidance).
+    sessionToken = new AutocompleteSessionToken();
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  input.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    const value = input.value.trim();
+    if (value.length < 3) {
+      closeDropdown();
+      return;
+    }
+    debounceTimer = setTimeout(async () => {
+      try {
+        const { suggestions } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
+          input: value,
+          sessionToken,
+          includedRegionCodes: ["us"],
+        });
+        renderSuggestions(suggestions || []);
+      } catch (err) {
+        console.warn("Address suggestion fetch failed:", err.message);
+        closeDropdown();
+      }
+    }, 300);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (dropdown.style.display === "none") return;
+    const options = dropdown.querySelectorAll(".gumly-address-option");
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeIndex = Math.min(activeIndex + 1, options.length - 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+    } else if (e.key === "Enter") {
+      if (activeIndex >= 0) {
+        e.preventDefault();
+        selectSuggestion(activeIndex);
+        return;
+      }
+    } else if (e.key === "Escape") {
+      closeDropdown();
+      return;
+    } else {
+      return;
+    }
+    options.forEach((el, i) => el.classList.toggle("active", i === activeIndex));
+  });
+
+  dropdown.addEventListener("mousedown", (e) => {
+    const option = e.target.closest(".gumly-address-option");
+    if (!option) return;
+    e.preventDefault();
+    selectSuggestion(parseInt(option.dataset.index, 10));
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!wrapper.contains(e.target)) closeDropdown();
+  });
+}
+
 document.addEventListener("DOMContentLoaded", gumlyInitNav);
 document.addEventListener("DOMContentLoaded", gumlyInitNumericInputs);
+document.addEventListener("DOMContentLoaded", gumlyInitAddressAutocomplete);
