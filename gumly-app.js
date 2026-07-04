@@ -21,7 +21,7 @@ const GUMLY_CONFIG = {
   // Settings > API > Google Cloud Console — a "Browser key" restricted to gumly.tech,
   // with "Places API (New)" enabled. Powers the address autocomplete fields.
   // Leave as-is to disable autocomplete gracefully (fields just work as plain text inputs).
-  GOOGLE_PLACES_API_KEY: "PASTE_YOUR_GOOGLE_PLACES_API_KEY_HERE",
+  GOOGLE_PLACES_API_KEY: "AIzaSyBXvX1uhVeSy1yVyy7GbzhqdcEZV3VyQ78",
 
   // Adjust these paths to match your actual Express routes if they differ.
   ENDPOINTS: {
